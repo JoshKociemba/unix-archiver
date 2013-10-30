@@ -29,8 +29,10 @@ int main(int argc, char **argv) {
 				break;
 			case 'A':
 				sel_opt = 6;
+				break;
 			case 'w':
 				sel_opt = 7;
+				break;
 			default:
 				break;
 				
