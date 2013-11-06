@@ -1,3 +1,11 @@
+/**
+ * Author: Joshua Kociemba (kociembj), joshua.kociemba@oregonstate.edu
+ * Created: 2013-10-29 18:01:09
+ * Filename: myar.c
+ *
+ * Description: UNIX Archive Utility
+ **/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,7 +15,19 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <stdbool.h>
+#include <time.h>
 #include "myar.h"
+
+struct arch_file {
+	char mode[7];
+	char uid[6];
+	char gid[6];
+	char date[20];
+	char name[17];
+	char perms[10];
+	char size[10];
+};
 
 /**
  * Attempts to open the archive at the given path
@@ -23,6 +43,11 @@ int arch_open(char *archpath);
  * Checks to make sure filedesc exists before continuing
  * Calls close and ends
  **/
+
+bool arch_isValid(char *archpath);
+
+bool arch_hasValidHdr(int fd);
+
 void arch_close(int filedesc);
 
 /**
@@ -34,108 +59,291 @@ int arch_write_ghdr(int filedesc);
 
 int arch_open(char *archpath) {
 	
-	struct stat buf;
-	int exists;
-	int filedesc;
+	int fd;
 
-	if(stat(archpath, &buf) == -1) {
-		exists = 0;
-	}
-	else {
-		exists = 1;
-	}
+	fd = open(archpath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
 
-	filedesc = open(archpath, O_CREAT | O_RDWR);
-
-	if (filedesc == -1) {
-		printf("Could not open nor create archive. Failed.\n");
+	if(fd == -1) {
+		printf("File could not be opened.\n");
 		return -1;
 	}
 
-	else {
-		lseek(filedesc, 0, SEEK_SET);
+	if(arch_isValid(archpath)) {
+
+		lseek(fd, 0, SEEK_SET);
 		
-		if (exists) {
-			if(arch_write_ghdr(filedesc) == -1) {
-				printf("Arch_write_ghdr failed.\n");
-				arch_close(filedesc);
-				return -1;
-			}
-			
+		if(arch_hasValidHdr(fd) == false) {
+			printf("Bad global header.\n");
+			arch_close(fd);
+			return -1;
+		}	
+	}
+	else {
+		
+	}
+
+	return fd;
+}
+
+bool arch_isValid(char *archpath) {
+	
+	struct stat buffer;
+	
+	if(stat(archpath, &buffer) == 0) {
+		return false;
+	}
+	else {
+		return true;
+	}
+}
+
+bool arch_hasValidHdr(int fd) {
+	
+	char buffer[SARMAG];
+
+	if(lseek(fd, 0, SEEK_SET) != 0) {
+		return false;
+	}
+
+	if(read(fd, buffer, SARMAG) != SARMAG) {
+		return false;
+	}
+
+	if(strncmp(buffer, ARMAG, sizeof(buffer)) != 0) {
+		return false;
+	}
+
+	return true;
+}
+
+void arch_close(int fd) {
+	if(fd != 0) {
+		close(fd);
+	}
+}
+
+
+bool arch_writeHdr(int fd) {
+
+	int success;
+
+	if(fd != 0) {
+		lseek(fd, 0, SEEK_SET);
+		success = write(fd, ARMAG, SARMAG);
+
+		if(success == -1) {
+			printf("An error occured while writing");
+			return -1;
+		}
+		
+		else {
+			return 1;
 		}
 	}
 
-	return filedesc;
+	return -1;
 }
 
-void arch_close(int filedesc) {
-	if (filedesc != 0) {
-		close(filedesc);
+struct arch_file cln_prms(struct arch_file archy) {
+	int i = 3;
+	int j = 0;
+	archy.perms[9] = '\0';
+
+	while (i < 6) {
+		if (archy.mode[i] == '0') {
+			archy.perms[j] = '-';
+			archy.perms[j+1] = '-';
+			archy.perms[j+2] = '-';		
+		}
+		if (archy.mode[i] == '1') {
+			archy.perms[j] = '-';
+			archy.perms[j+1] = '-';
+			archy.perms[j+2] = 'x';
+		}
+		if (archy.mode[i] == '2') {
+			archy.perms[j] = '-';
+			archy.perms[j+1] = 'w';
+			archy.perms[j+2] = '-';
+		}
+		if (archy.mode[i] == '3') {
+			archy.perms[j] = '-';
+			archy.perms[j+1] = 'w';
+			archy.perms[j+2] = 'x';
+		}
+		if (archy.mode[i] == '4') {
+			archy.perms[j] = 'r';
+			archy.perms[j+1] = '-';
+			archy.perms[j+2] = '-';
+		}
+		if (archy.mode[i] == '5') {
+			archy.perms[j] = 'r';
+			archy.perms[j+1] = '-';
+			archy.perms[j+2] = 'x';
+		}
+		if (archy.mode[i] == '6') {
+			archy.perms[j] = 'r';
+			archy.perms[j+1] = 'w';
+			archy.perms[j+2] = '-';
+		}
+		if (archy.mode[i] == '7') {
+			archy.perms[j] = 'r';
+			archy.perms[j+1] = 'w';
+			archy.perms[j+2] = 'x';
+		}
+		i++;
+		j+=3;
+	}
+	
+	return archy;
+}
+
+struct arch_file cln_str(struct arch_file archy) {
+	int i = 0;
+	int st;
+	long t;
+	char temp[20];
+	time_t arch_time;
+
+	while (i < 17) {
+		if (archy.name[i] == '/') {
+			archy.name[i] = '\0';
+		}
+		i++;
+	}
+
+	i = 0;
+
+	while (i < 9) {
+		if (archy.size[i] == ' ') {
+			temp[i] = '\0';
+			i = 9;
+		}
+		else {
+			temp[i] = archy.size[i];
+			i++;
+		}
+	}
+
+
+	strcpy(archy.size, temp);
+
+	t = atol(archy.date);
+	arch_time = (time_t)t;
+
+	strftime(temp, 20, "%b %e %R %Y", localtime(&arch_time));
+
+	strcpy(archy.date, temp);
+
+	archy.date[19] = '\0';
+	archy.gid[5] = '\0';
+	archy.uid[5] = '\0';
+	archy.mode[6] = '\0';
+
+	archy = cln_prms(archy);
+
+	return archy;
+}
+
+struct arch_file arch_read(int fd) {
+	struct arch_file archy;
+	
+	read(fd, archy.name, 16);
+
+	read(fd, archy.date, 12);
+
+	read(fd, archy.gid, 5);
+
+	lseek(fd, 1, SEEK_CUR);
+
+	read(fd, archy.uid, 5);
+
+	lseek(fd, 1, SEEK_CUR);
+
+	read(fd, archy.mode, 6);
+
+	lseek(fd, 2, SEEK_CUR);
+
+	read(fd, archy.size, 10);
+
+	archy = cln_str(archy);
+
+	return archy;
+}
+
+void arch_seek_next(int fd, int hsize) {
+	
+	hsize += 2;
+
+	lseek(fd, hsize, SEEK_CUR);
+
+	if ((lseek(fd, 0, SEEK_CUR) % 2) == 1) {
+		lseek(fd, 1, SEEK_CUR);
 	}
 }
 
-int arch_write_ghdr(int filedesc) {
+void arch_print_table(int fd, bool verbose) {
+	struct arch_file archy;
+	int arch_size = lseek(fd, 0, SEEK_END);
+	int hsize;
 
-	return 0;
+	lseek(fd, 8, SEEK_SET);
+	
+	while (lseek(fd, 0, SEEK_CUR) < arch_size) {
+		archy = arch_read(fd);
+
+		if (verbose) {
+			printf("%s ", archy.perms);
+			printf("%s/%s", archy.gid, archy.uid);
+			printf("\t  %s ", archy.size);
+			printf("%s ", archy.date);
+			printf("%s\n", archy.name);
+		}
+		else {
+			printf("%s\n", archy.name);
+		}
+		
+		hsize = atoi(archy.size);
+		arch_seek_next(fd, hsize);
+	}
+}
+
+void usage(void) {
+
+	printf( "Usage: myar [-][vqxtdAw] archive file\n"
+		"-v\t- print a verbose version of the output\n"
+		"-q\t- quickly append named files to archive\n"
+		"-x\t- extract named files\n"
+		"-t\t- print a concise table of contents of the archive\n"
+		"-d\t- delete named files from archive\n"
+		"-A\t- quickly append all regular files in the current directory\n"
+	      );
 }
 
 int main(int argc, char **argv) {
-	
-	int opt;
-	int sel_opt = 0;
-	char *archpath = NULL;
-	int validar;
 
-	while ((opt = getopt(argc, argv, "vqxtdAw")) != -1) {
+	char arch_path[] = "";
+	int opt = 0;
+	int fd;
+
+	strcpy(arch_path, argv[2]);
+	
+	fd = arch_open(arch_path);
+	
+	while ((opt = getopt(argc, argv, "vqxtdA")) != -1) {
 		switch (opt) {
-			case 'v':
-				sel_opt = 1;
-				break;	
-			case 'q':
-				sel_opt = 2;
-				break;
-			case 'x':
-				sel_opt = 3;
-				break;
-			case 't':
-				sel_opt = 4;
-				break;
-			case 'd':
-				sel_opt = 5;
-				break;
-			case 'A':
-				sel_opt = 6;
-				break;
-			case 'w':
-				sel_opt = 7;
-				break;
-			default:
-				break;
-				
+		case 't':
+			arch_print_table(fd, false);
+			break;
+		case 'v':
+			arch_print_table(fd, true);
+			break;
+		default:
+			usage();
+			break;
 		}
 	}
 
-	if (sel_opt == 0) {
-		printf("Correct options not selected.\n");
-	}
+	arch_close(fd);
 
-	if (optind < argc) {
-		archpath = (char *)malloc((strlen(argv[optind]) + 1) * sizeof(char));
-		if (archpath == NULL) {
-			printf("Allocated memory not created for archive path string.\n");
-			exit(0);
-		}
-
-		strcpy(archpath, argv[optind++]);
-	}
-	else {
-		printf("File path not found\n");
-	}
-	
-	validar = arch_open(archpath);
-	if (validar == -1) {
-		printf("Archive was not found.");
-		return -1;
-	}
-
+	return 0;
 }
