@@ -21,3 +21,30 @@ compile: ${SOURCE} ${INCLUDES}
 
 debug: ${SOURCE} ${INCLUDES}
 	${CC} ${CFLAGS} ${SOURCE} -o ${TARGET} ${LDFLAGS} -DDEBUG
+
+###########
+# TeX Portion of the makefile
+# Author Josh Kociemba
+###########
+
+TARGET = writeup
+SRC = ${TARGET}
+
+default: pdf
+
+dvi: ${TARGET}.tex
+	latex ${TARGET}.tex
+	latex $(TARGET).tex
+
+ps: dvi
+	dvips -R -Poutline -t letter ${TARGET}.dvi -o ${TARGET}.ps
+
+pdf: ps
+	ps2pdf ${TARGET}.ps
+	rm ${TARGET}.aux
+	rm ${TARGET}.ps
+	rm ${TARGET}.out
+	rm ${TARGET}
+	rm ${TARGET}.dvi
+	rm ${TARGET}.log
+	
